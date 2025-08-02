@@ -48,10 +48,10 @@ class NetworkDataExtract():
             return(len(self.records))
         
         except Exception as e:
-            raise NetworkSecurityException(e, sys)
+            raise NetworkSecurityException(e, sys) # type: ignore
 
 if __name__=='__main__':
-    FILE_PATH = 'Network_Data\phisingData.csv'
+    FILE_PATH = 'Network_Data/phisingData.csv'
     DATABASE = 'SabbirAzim'
     Collection = 'NetworkData'
     networkobj = NetworkDataExtract()
