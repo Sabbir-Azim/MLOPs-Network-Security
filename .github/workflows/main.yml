@@ -76,11 +76,17 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
-      
+
+      # 🔹 Cleanup old Docker images and volumes to prevent disk full
+      - name: Clean old Docker images and volumes
+        run: |
+          docker system prune -af
+          docker volume prune -f
+
       - name: Pull latest images
         run: |
           docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
-         
+       
       #- name: Stop and remove container if running
       #  run: |
       #    docker ps -q --filter "name=networksecurity" | grep -q . && docker stop networksecurity && docker rm -fv networksecurity
@@ -96,6 +102,6 @@ jobs:
       - name: Show container logs
         run: docker logs networksecurity
 
-      - name: Clean previous images and containers
+      - name: Clean previous images and containers (optional)
         run: |
           docker system prune -f
