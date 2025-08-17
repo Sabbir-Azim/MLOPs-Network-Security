@@ -87,7 +87,7 @@ jobs:
         env:
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
         run: |
-          docker pull $IMAGE_URI
+          docker pull "$IMAGE_URI"
 
       #- name: Stop and remove container if running
       #  run: |
@@ -103,7 +103,7 @@ jobs:
             -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
             -e AWS_REGION=${{ secrets.AWS_REGION }} \
             -e MONGODB_URL_KEY=${{ secrets.MONGODB_URL_KEY }} \
-            $IMAGE_URI
+            "$IMAGE_URI"
 
       - name: Show container logs
         run: docker logs networksecurity
