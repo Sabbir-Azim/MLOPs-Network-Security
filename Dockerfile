@@ -1,8 +1,10 @@
 FROM python:3.10-slim-bullseye
+
 WORKDIR /app
 COPY . /app
 
-RUN pip install --no-cache-dir awscli
+RUN apt-get update && apt-get install -y gcc
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN apt-get update && pip install -r requirements.txt
-CMD ["python3", "app.py"]
+EXPOSE 8000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
