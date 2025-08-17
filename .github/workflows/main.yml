@@ -62,6 +62,8 @@ jobs:
   Continuous-Deployment:
     needs: build-and-push-ecr-image
     runs-on: self-hosted
+    env:
+      IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -85,12 +87,12 @@ jobs:
 
       - name: Pull latest images
         run: |
-          docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
-       
+          docker pull $IMAGE_URI
+
       #- name: Stop and remove container if running
       #  run: |
       #    docker ps -q --filter "name=networksecurity" | grep -q . && docker stop networksecurity && docker rm -fv networksecurity
-       
+
       - name: Run Docker Image to serve users
         run: |
           docker run -d -p 8080:8000 --ipc="host" --name=networksecurity \
@@ -99,11 +101,14 @@ jobs:
             -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
             -e AWS_REGION=${{ secrets.AWS_REGION }} \
             -e MONGODB_URL_KEY=${{ secrets.MONGODB_URL_KEY }} \
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+            $IMAGE_URI
 
       - name: Show container logs
         run: docker logs networksecurity
 
+      - name: Show Docker images
+        run: docker images
+
       - name: Clean previous images and containers (optional)
-        run: |
-          docker system prune -f
+        run: docker system prune -f
+
