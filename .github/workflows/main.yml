@@ -85,7 +85,7 @@ jobs:
 
       - name: Pull latest images
         env:
-        IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
         run: |
           docker pull $IMAGE_URI
 
@@ -95,7 +95,7 @@ jobs:
 
       - name: Run Docker Image to serve users
         env:
-        IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
         run: |
           docker run -d -p 8080:8000 --ipc="host" --name=networksecurity \
             -e DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }} \
