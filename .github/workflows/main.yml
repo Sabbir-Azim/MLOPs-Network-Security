@@ -29,6 +29,8 @@ jobs:
     name: Continuous Delivery
     needs: integration
     runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -37,6 +39,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq unzip
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
@@ -57,7 +60,7 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
   Continuous-Deployment:
     needs: build-and-push-ecr-image
@@ -77,25 +80,20 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      # 🔹 Cleanup old Docker images and volumes to prevent disk full
       - name: Clean old Docker images and volumes
         run: |
           docker system prune -af
           docker volume prune -f
 
-      - name: Pull latest images
-        env:
-          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+      - name: Pull latest image
         run: |
-          docker pull "$IMAGE_URI"
+          docker pull "${{ needs.build-and-push-ecr-image.outputs.image }}"
 
-      #- name: Stop and remove container if running
-      #  run: |
-      #    docker ps -q --filter "name=networksecurity" | grep -q . && docker stop networksecurity && docker rm -fv networksecurity
+      - name: Stop and remove container if running
+        run: |
+          docker ps -q --filter "name=networksecurity" | grep -q . && docker stop networksecurity && docker rm -fv networksecurity || echo "No container running"
 
       - name: Run Docker Image to serve users
-        env:
-          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
         run: |
           docker run -d -p 8080:8000 --ipc="host" --name=networksecurity \
             -e DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }} \
@@ -103,14 +101,11 @@ jobs:
             -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
             -e AWS_REGION=${{ secrets.AWS_REGION }} \
             -e MONGODB_URL_KEY=${{ secrets.MONGODB_URL_KEY }} \
-            "$IMAGE_URI"
+            "${{ needs.build-and-push-ecr-image.outputs.image }}"
 
       - name: Show container logs
         run: docker logs networksecurity
 
       - name: Show Docker images
         run: docker images
-
-      - name: Clean previous images and containers (optional)
-        run: docker system prune -f
 
