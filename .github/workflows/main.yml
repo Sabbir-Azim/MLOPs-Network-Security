@@ -27,72 +27,102 @@ jobs:
     name: Continuous Delivery
     needs: integration
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.meta.outputs.digest }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-      - name: Install Utilities
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq unzip
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
+
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          set -euo pipefail
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
 
-  "Continuous-Deployment":
+      - name: Emit image URI and digest
+        id: meta
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          IMAGE_TAG: latest
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          RAW_DIGEST=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text \
+            --region "$AWS_REGION")
+          DIGEST="$ECR_REGISTRY/$ECR_REPOSITORY@$RAW_DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+  Continuous-Deployment:
     needs: build-and-push-ecr-image
     runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
+
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Check disk usage before cleanup
-        run: df -h
+        run: |
+          df -h
+          docker system df || true
+
       - name: Cleanup Docker (free space)
-        run: docker system prune -af --volumes
-      - name: Check disk usage after cleanup
-        run: df -h
-      - name: Pull latest image
-        run: docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+        run: |
+          docker container prune -f || true
+          docker image prune -af || true
+          docker volume prune -f || true
+          docker builder prune -af || true
+          docker system df || true
+
+      - name: Pull image
+        run: docker pull "${{ needs.build-and-push-ecr-image.outputs.digest }}"
+
       - name: Stop and remove old container if exists
         run: |
           docker ps -q --filter "name=networksecurity" | grep -q . && docker stop networksecurity && docker rm -fv networksecurity || echo "No container to stop"
+
       - name: Run new container
         run: |
           docker run -d -p 8080:8000 --name=networksecurity \
-            -e DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }} \
-            -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
-            -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-            -e AWS_REGION=${{ secrets.AWS_REGION }} \
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+            -e DAGSHUB_TOKEN='${{ secrets.DAGSHUB_TOKEN }}' \
+            -e AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' \
+            -e AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
+            -e AWS_REGION='${{ secrets.AWS_REGION }}' \
+            "${{ needs.build-and-push-ecr-image.outputs.digest }}"
+
       - name: Show container logs
-        run: docker logs networksecurity
+        run: docker logs --tail=200 networksecurity
 
-      - name: Cleanup old Docker images
+      - name: Cleanup unused Docker artifacts (post-deploy)
         run: |
-          docker image prune -af
-          docker volume prune -f
-
+          docker image prune -af || true
+          docker volume prune -f || true
+          docker builder prune -af || true
+          docker system df || true
